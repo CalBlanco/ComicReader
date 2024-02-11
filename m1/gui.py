@@ -48,12 +48,16 @@ class ReaderScreen(tk.Frame):
         
         #holds modes (read or save)
         mode_frame = ttk.Frame(read_frame)
-        read_mode_button = ttk.Button(mode_frame, text="Read Mode", command= lambda: self.comic_reader.read('read'))
-        save_mode_button = ttk.Button(mode_frame, text="Save Mode(copy pictures)", command= lambda: self.comic_reader.read('save'))
+        read_mode_button = ttk.Button(mode_frame, text="Read Mode", command= lambda: self.comic_reader.threadRun('read'))
+        save_mode_button = ttk.Button(mode_frame, text="Save Mode(copy pictures)", command= lambda: self.comic_reader.threadRun('save'))
 
         read_mode_button.grid(row=0,column=0, padx=10)
-        save_mode_button.grid(row=0,column=1, padx=10)
+        save_mode_button.grid(row=0,column=2, padx=10)
+        stop_button = ttk.Button(mode_frame,text="Stop", command=lambda: self.comic_reader.threadStop())
+        stop_button.grid(row=1,column=1, padx=10, pady=10)
         mode_frame.pack()
+
+        
 
         read_frame.pack()
 

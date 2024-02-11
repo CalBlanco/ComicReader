@@ -12,20 +12,26 @@ import os
 from ultralytics import YOLO
 import easyocr
 from PIL import Image, ImageDraw
-from TTS.api import TTS
 import torch
 import winsound
 from autocorrect import Speller
+from TTS.api import TTS
+import multiprocessing
+
+
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 '''Reader Class for use in the GUI'''
 class Reader():
-    def __init__(self, out_path, model_path, voice_path='omniman.wav', gpu_enabled=False):
+    def __init__(self, out_path, model_path, voice_path='voices/omniman/omniman.wav'):
         self.out_path = out_path
         self.voice_path = voice_path
         self.model = None
         self.model_path = model_path
+        self.active_proc = None
+        self.active_driver = None
+
         #make needed directories
         if not os.path.exists(out_path):
             os.makedirs(out_path)
@@ -49,11 +55,25 @@ class Reader():
 
     def setVoice(self, voice_path):
         self.voice_path = voice_path
+    '''Start a reading process if we don't have one'''
+    def threadRun(self,runMode='read'):
+        if not self.active_proc:
+            self.active_proc = multiprocessing.Process(target=self.readWrapper,args=(runMode,))
+            self.active_proc.start()
+        return
 
+    '''Kill our active process'''
+    def threadStop(self):
+        if self.active_driver:
+            self.active_driver.close()
+        if self.active_proc:
+            self.active_proc.terminate()
+        
     '''Functin to call reader through gui'''
-    def read(self,mode='save'):
+    def readWrapper(self,mode='read'):
         #init models
-        self.tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2").to(device)
+        print('Read Wrapper beggining read operation')
+        self.tts = TTS('tts_models/multilingual/multi-dataset/your_tts').to(device)
         self.model = YOLO(self.model_path) if not self.model else self.model
         self.reader = easyocr.Reader(['en'],gpu=True)
         self.speller = Speller(fast=True)
@@ -151,9 +171,8 @@ class Reader():
         if text is None or text=='': 
             return
         text = self.cleanTextForSpeech(text)
-        self.tts.tts_to_file(text=f"{text}", speaker_wav=self.voice_path, language="en", file_path="./audio_clips/current_bubble.wav")
+        self.tts.tts_to_file(text=text, file_path="./audio_clips/current_bubble.wav", language='en', speaker_wav=self.voice_path)
         winsound.PlaySound('./audio_clips/current_bubble.wav', winsound.SND_FILENAME)
-        time.sleep(1.5)
         os.remove('./audio_clips/current_bubble.wav')
         return
 
@@ -244,6 +263,7 @@ class Reader():
         options = Options()
         options.add_argument("--log-level=3")
         driver = webdriver.Chrome(options=options)
+        self.active_driver = driver
         driver.set_window_size(600, 800)
         driver.get(comic_page)
 
