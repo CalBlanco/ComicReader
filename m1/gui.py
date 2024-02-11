@@ -84,7 +84,13 @@ class ReaderScreen(tk.Frame):
         pad_entry.bind('<Return>', lambda x: self.comic_reader.setPadding(pad_int.get()))
         pad_label.grid(row=2,column=0,padx=10,pady=10)
         pad_entry.grid(row=2,column=1,padx=10,pady=10)
-
+        #tts model by string entry
+        tts_label = ttk.Label(settings_frame, text="TTS Model", font=('Helvetica', '12'))
+        tts_string = tk.StringVar()
+        tts_entry = ttk.Entry(settings_frame, textvariable=tts_string)
+        tts_entry.bind('<Return>', lambda x: self.comic_reader.setTTSModel(tts_string.get()))
+        tts_label.grid(row=3,column=0,padx=10,pady=10)
+        tts_entry.grid(row=3,column=1,padx=10,pady=10)
 
         settings_frame.pack()
 

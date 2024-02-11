@@ -24,10 +24,11 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 
 '''Reader Class for use in the GUI'''
 class Reader():
-    def __init__(self, out_path, model_path, voice_path='voices/omniman/omniman.wav'):
+    def __init__(self, out_path, model_path, tts_model='tts_models/multilingual/multi-dataset/your_tts',voice_path='voices/omniman/omniman.wav'):
         self.out_path = out_path
         self.voice_path = voice_path
         self.model = None
+        self.tts_model = tts_model
         self.model_path = model_path
         self.active_proc = None
         self.active_driver = None
@@ -53,6 +54,9 @@ class Reader():
     def setModel(self,path):
         self.model = YOLO(path)
 
+    def setTTSModel(self, modelString):
+        self.tts_model = modelString
+
     def setVoice(self, voice_path):
         self.voice_path = voice_path
     '''Start a reading process if we don't have one'''
@@ -65,7 +69,7 @@ class Reader():
     '''Kill our active process'''
     def threadStop(self):
         if self.active_driver:
-            self.active_driver.close()
+            self.active_driver.quit()
         if self.active_proc:
             self.active_proc.terminate()
         
@@ -73,7 +77,7 @@ class Reader():
     def readWrapper(self,mode='read'):
         #init models
         print('Read Wrapper beggining read operation')
-        self.tts = TTS('tts_models/multilingual/multi-dataset/your_tts').to(device)
+        self.tts = TTS(self.tts_model).to(device)
         self.model = YOLO(self.model_path) if not self.model else self.model
         self.reader = easyocr.Reader(['en'],gpu=True)
         self.speller = Speller(fast=True)
@@ -163,6 +167,10 @@ class Reader():
         for re in removes:
             text = text.replace(re,'')
         
+        replacements = {'0': 'o', '1': 'l', '6': 'g'}
+        for re in replacements.keys():
+            text = text.replace(re,replacements[re])
+
         text = self.speller(text)
         return text
 
