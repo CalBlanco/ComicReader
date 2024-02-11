@@ -12,16 +12,16 @@ import os
 from ultralytics import YOLO
 import easyocr
 from PIL import Image, ImageDraw
-import pyttsx3
 from TTS.api import TTS
 import torch
 import winsound
-
+from autocorrect import Speller
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
+'''Reader Class for use in the GUI'''
 class Reader():
-    def __init__(self, out_path, model_path, voice_path, gpu_enabled=False):
+    def __init__(self, out_path, model_path, voice_path='omniman.wav', gpu_enabled=False):
         self.out_path = out_path
         self.voice_path = voice_path
         self.model = None
@@ -38,19 +38,25 @@ class Reader():
 
         
         self.targets = []
+        self.bubble_pad = 10
 
+    def setPadding(self,pad):
+        self.bubble_pad = pad
+
+    '''Gui setting methods'''
     def setModel(self,path):
         self.model = YOLO(path)
 
     def setVoice(self, voice_path):
         self.voice_path = voice_path
 
+    '''Functin to call reader through gui'''
     def read(self,mode='save'):
         #init models
         self.tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2").to(device)
         self.model = YOLO(self.model_path) if not self.model else self.model
         self.reader = easyocr.Reader(['en'],gpu=True)
-
+        self.speller = Speller(fast=True)
         for target in self.targets:
             self.readComic(target,mode)
 
@@ -80,8 +86,7 @@ class Reader():
         
         driver.switch_to.window(og_window)
 
-    '''Take a screenshot for data collection
-        (not to be confusedf with getting full source)
+    '''Center the image for reading / screenshotting
     '''
     def center_image(self,driver,image_content):
         ActionChains(driver).key_down(Keys.CONTROL).send_keys(Keys.SUBTRACT).key_up(Keys.CONTROL).perform()    
@@ -91,6 +96,7 @@ class Reader():
         .perform()
         time.sleep(0.15) #have to sleep here otherwise screenshot is fucked
 
+    '''Capture the image content as a screenshot for data collection'''
     def takeScreenshot(self, image_content, save_name):
         image_content.screenshot(f'{self.out_path}/{save_name}')
 
@@ -129,37 +135,55 @@ class Reader():
             return tmp_file.name
 
 
-    #updated TTS
+    '''TTS using Coqui and autocorrection'''
     def voiceSpeakText(self,text):
-        self.tts.tts_to_file(text=f"{text}", speaker_wav="./syeun.wav", language="en", file_path="./audio_clips/current_bubble.wav")
+        def clean(text):
+            text = text.lower()
+            removes = [',','\'','#', '$', '%', '&', '*', '+', '_', '-','?','`', '.', ';']
+            for re in removes:
+                text = text.replace(re,'')
+            return text
+        text = clean(text)
+        text = self.speller(text)
+        self.tts.tts_to_file(text=f"{text}", speaker_wav=self.voice_path, language="en", file_path="./audio_clips/current_bubble.wav")
         winsound.PlaySound('./audio_clips/current_bubble.wav', winsound.SND_FILENAME)
         time.sleep(1.5)
         os.remove('./audio_clips/current_bubble.wav')
         return
 
     
+    
     def cropBubbles(self,save_name,src):
+        def posIndex(box):
+            x,y,_,_ = box
+            return round(float(x)*2+float(y))
         print(save_name)
         out_text = ""
-        colors = [(255,0,0),(0,255,0),(0,0,255),(0,0,255),(0,0,255),(0,0,255),(0,0,255),(0,0,255),(0,0,255),(0,0,255)]
-        PAD = 10
+        colors = [(255,0,0),(0,255,0),(0,0,255),(255,0,255),(0,255,255),(255,255,0),(0,125,125),(125,0,125),(125,125,0),(255,255,255)]
+        
         with Image.open(src).convert("RGB") as img:
             draw = ImageDraw.Draw(img)
             results = self.model([img])
 
             for result in results:
-                boxes = result.boxes
-                sizes = boxes.xywh
-                classes = boxes.cls
+                boxes = result.boxes #get our boxes
+                sizes = boxes.xywh #actual bounding box 
+                classes = boxes.cls #classes
+                conf = boxes.conf #confidence leves
 
-                pairs = [{"box": sizes[i], "class": cl } for i,cl in enumerate(classes)]
-                pairs.sort(key=lambda x: ( float(x["box"][1]), float(x["box"][0]) ) )
+                #store the info and sort it for the correct position of the boxes
+                pairs = [{"box": sizes[i], "class": cl, 'conf': conf[i], 'index': posIndex(sizes[i]) } for i,cl in enumerate(classes)]
+                pairs.sort(key=lambda x: (float(x['box'][1]), float(x['box'][0])) )
+
+                #loop over boxes
                 for i,pair in enumerate(pairs):
                     x,y,w,h = [float(val) for val in pair["box"]]
-                    cl = int(pair["class"])
-                    if cl==0 or cl==2 or cl == 4 or cl == 5: # if the class is something we should read
-                        crop = img.crop((x-(w/2)-PAD,y-(h/2)-PAD,x+(w/2)+PAD,y+(h/2)+PAD)) #crop with padding
-                        crop_path = f"./crops/crop-{save_name}-{i}.png" #crop file path
+                    cl = int(pair["class"]) #shorthand for vars
+
+
+                    if (cl==0 or cl==2 or cl == 4 or cl == 5) and float(pair['conf']) > 0.7: # if the class is something we should read
+                        crop = img.crop((x-(w/2)-self.bubble_pad,y-(h/2)-self.bubble_pad,x+(w/2)+self.bubble_pad,y+(h/2)+self.bubble_pad)) #crop with padding
+                        crop_path = f"./crops/{save_name}-{i}.png" #crop file path
                         crop.save(crop_path,"PNG") # save it for reading 
                         text = self.reader.readtext(crop_path) #read
                         os.remove(crop_path) #remove crop
@@ -169,16 +193,19 @@ class Reader():
                         self.voiceSpeakText(text)
                         out_text += f"{'='*10}\nFROM BOX: [{x},{y},{x+w},{y+h}]\n\n{text}\n" # append for the text file
                         
-                for i,cl in enumerate(classes): #draw the boxes on the image
+                for i,pair in enumerate(pairs): #draw the boxes on the image
                     x,y,w,h = [float(val) for val in sizes[i]]
-                    cl = int(cl)
+                    cl = int(pair['class'])
+                    conf = round(float(pair['conf']),3)
+                    index = pair['index']
                     draw.rectangle((x-(w/2),y-(h/2),x+(w/2),y+(h/2)),width=3,outline=colors[cl])
-                    draw.text((x,y), f"Class: {cl}", stroke_fill=colors[cl])
+                    draw.text((x,y), f"Class: {cl}, Conf: {conf}, i: {index}", stroke_fill=colors[cl], fill=colors[cl])
                 
-            img.save(f"./read/{save_name}-{i}.png","PNG")
+            img.save(f"./read/{save_name}.png","PNG")
         with open(f"./read/{save_name}.txt", "w") as log: #write a text file for the image from what we deciphered
             log.write(f"{'-'*20}\nText from {save_name}START\n\n{out_text}\n\nEND{'-'*20}")
 
+    '''Parse readcomiconline link for comic name and issue information'''
     def setUpNames(self, comic_page):
             link = comic_page.find("https://") if comic_page.find("https://") > -1 else 0
             assert link != '','Invalid link'
@@ -190,10 +217,14 @@ class Reader():
             print(f"found comic name {comic}/{issue}")
             return [comic,issue]
 
-    #read the comic
+    '''Selenium Driver to read the comic book based on a link'''
     def readComic(self,comic_page,mode):
-        save_name = self.setUpNames(comic_page)
-        save_name = f'{save_name[0]}-{save_name[1]}'
+        comic,issue = self.setUpNames(comic_page)
+        save_name = f'{comic}/{issue}'
+        if not os.path.exists(f'./read/{comic}'):
+            os.makedirs(f'./read/{comic}')
+        if not os.path.exists(f'./crop/{comic}'):
+            os.makedirs(f'./crops/{comic}')
         #init our driver and go to the desired page collecting the elements we will need to read
         options = Options()
         options.add_argument("--log-level=3")

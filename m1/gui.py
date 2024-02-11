@@ -1,6 +1,6 @@
 import tkinter as tk
 from tkinter import filedialog
-from tkinter import ttk
+from tkinter import ttk, font
 # GUI for comic reader development / program
 # at the end i will want seperate gui for the model training and the reading, but for now I would like to have both in a package thats easy to interact with
 from reader import Reader
@@ -12,47 +12,41 @@ from reader import Reader
 class ReaderScreen(tk.Frame):
     def __init__(self,master):
         super().__init__(master)
-        self.comic_reader = Reader('./out/','./best.pt', 'syeun.wav') #init reader 
+        self.comic_reader = Reader('./out/','./best.pt') #init reader 
 
-        
+        #Tab layout for the reader and its settings
         tabs = ttk.Notebook(self)
-
-
-
         label = ttk.Label(self,text="Reading Screen", font=("Helvetica", 20))#title
         label.pack(padx=10, pady=10)
 
-        read_frame = ttk.Frame(tabs)
-
+        read_frame = ttk.Frame(tabs) #frame for the reading operations
         input_frame = ttk.Frame(read_frame)
+    
+        link_label = ttk.Label(input_frame, text="By Link Input", font=('Helvetica', 12))#label for link input
+        link_label.grid(row=0, column=0,padx=5,pady=5)
+        link_str = tk.StringVar() #variable to contain link input
+        link_entry = ttk.Entry(input_frame,textvariable=link_str) #link input
+        link_entry.grid(row=0, column=1,padx=5,pady=5)
+        link_entry.bind('<Return>', lambda x: self.addSingleTarget(link_str),link_str.set('')) #bind return event to add link and clear the entry field
         
-        label_0 = ttk.Label(input_frame, text="By Link Input", font=('Helvetica', 12))
-        label_0.grid(row=0, column=0)
-
-        link_str = tk.StringVar()
-        link_entry = ttk.Entry(input_frame,textvariable=link_str)
-        link_entry.grid(row=0, column=1)
-
-        link_entry.bind('<Return>', lambda x: self.addSingleTarget(link_str))
-        
-        file_label = ttk.Label(input_frame, text="Or By File", font=('Helvetica', 12))
-        file_label.grid(row=3, column=0)
+        file_label = ttk.Label(input_frame, text="Or By File", font=('Helvetica', 12)) #file input label
+        file_label.grid(row=3, column=0,padx=5,pady=5)
         self.file_path_str = tk.StringVar(value='')
         file_button = ttk.Button(input_frame,text="Select file", command=lambda: self.select_dir())
-        file_button.grid(row=3, column=1)
+        file_button.grid(row=3, column=1,padx=5,pady=5)
         file_label_disc = ttk.Label(input_frame, text="File selection will overwrite list items", font=('Helvetica', 10))
-        file_label_disc.grid(row=4,column=0)
+        file_label_disc.grid(row=4,column=0,padx=5,pady=5)
 
         input_frame.pack()
 
-
+        #display the targets we want to read
         target_frame = ttk.Frame(read_frame)
         self.list_box = tk.Listbox(target_frame,width=100,height=len(self.comic_reader.targets)*50)
         self.list_box.insert(tk.END, "Comic - Issue")
         self.list_box.pack(padx=10,pady=10)
         target_frame.pack()
         
-
+        #holds modes (read or save)
         mode_frame = ttk.Frame(read_frame)
         read_mode_button = ttk.Button(mode_frame, text="Read Mode", command= lambda: self.comic_reader.read('read'))
         save_mode_button = ttk.Button(mode_frame, text="Save Mode(copy pictures)", command= lambda: self.comic_reader.read('save'))
@@ -63,21 +57,30 @@ class ReaderScreen(tk.Frame):
 
         read_frame.pack()
 
-
+        #settings tab
         settings_frame = ttk.Frame(tabs)
+        #yolo model weights
         model_label = ttk.Label(settings_frame, text="Pick Object Detector", font=("Helvetica", "12"))
         model_entry = ttk.Button(settings_frame, text="Select File", command=lambda: self.setModel())
         current_model = ttk.Label(settings_frame, text=f"{self.comic_reader.model_path}")
         current_model.grid(row=0,column=2,padx=10, pady=10)
         model_label.grid(row=0,column=0,padx=10,pady=10)
         model_entry.grid(row=0,column=1,padx=10,pady=10)
-
+        #voice path (soon to be paths)
         voice_label = ttk.Label(settings_frame, text="Change the speakers voice", font=("Helvetica", "12"))
         voice_entry = ttk.Button(settings_frame, text="Select File", command=lambda: self.setVoice())
         current_voice = ttk.Label(settings_frame, text=f"{self.comic_reader.voice_path}")
         voice_label.grid(row=1,column=0,padx=10,pady=10)
         voice_entry.grid(row=1,column=1,padx=10,pady=10)
         current_voice.grid(row=1,column=2,padx=10, pady=10)
+        #bubble pad size
+        pad_label = ttk.Label(settings_frame, text="Text Bubble Padding", font=('Helvetica', '12'))
+        pad_int = tk.IntVar(value=self.comic_reader.bubble_pad)
+        pad_entry = ttk.Entry(settings_frame,textvariable=pad_int)
+        pad_entry.bind('<Return>', lambda x: self.comic_reader.setPadding(pad_int.get()))
+        pad_label.grid(row=2,column=0,padx=10,pady=10)
+        pad_entry.grid(row=2,column=1,padx=10,pady=10)
+
 
         settings_frame.pack()
 
@@ -127,6 +130,9 @@ class DataBuilderScreen(tk.Frame):
         label = tk.Label(self,text="Data Builder Screen", font=("Helvetica", 20))
         label.pack(padx=10,pady=10)
 
+        
+
+        
 
 # Screen 2: Yolo Trainer 
 class YoloScreen(tk.Frame):
