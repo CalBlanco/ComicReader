@@ -4,5 +4,7 @@ Scripts/
 Lib/
 share/
 Include/
-read/*.txt
+read/
+out/
+crops/
 __pycache__/

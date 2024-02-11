@@ -134,33 +134,63 @@ class Reader():
             tmp_file.write(r.content)
             return tmp_file.name
 
-
-    '''TTS using Coqui and autocorrection'''
-    def voiceSpeakText(self,text):
-        def clean(text):
-            text = text.lower()
-            removes = [',','\'','#', '$', '%', '&', '*', '+', '_', '-','?','`', '.', ';']
-            for re in removes:
-                text = text.replace(re,'')
-            return text
-        text = clean(text)
+    '''Clean out our text to aid in TTS
+        removing certain chars that present problems and then feeding that replaced string into an autocorrecting library for further fixes
+    '''
+    def cleanTextForSpeech(self,text):
+        text = text.lower()
+        removes = [',','\'','#', '$', '%', '&', '*', '+', '_', '-','?','`', '.', ';']
+        for re in removes:
+            text = text.replace(re,'')
+        
         text = self.speller(text)
+        return text
+
+    '''TTS using Coqui(soon to be bark)'''
+    def voiceSpeakText(self,text):
+        if text is None or text=='': 
+            return
+        text = self.cleanTextForSpeech(text)
         self.tts.tts_to_file(text=f"{text}", speaker_wav=self.voice_path, language="en", file_path="./audio_clips/current_bubble.wav")
         winsound.PlaySound('./audio_clips/current_bubble.wav', winsound.SND_FILENAME)
         time.sleep(1.5)
         os.remove('./audio_clips/current_bubble.wav')
         return
 
+    '''Given a prediction grab the text if applicable and return it '''
+    def readBubble(self, pair,img,save_name):
+        x,y,w,h = [float(val) for val in pair["box"]]
+        cl = int(pair["class"]) #shorthand for vars
+        if (cl==0 or cl==2 or cl == 4 or cl == 5) and float(pair['conf']) > 0.7: # if the class is something we should read
+            crop = img.crop((x-(w/2)-self.bubble_pad,y-(h/2)-self.bubble_pad,x+(w/2)+self.bubble_pad,y+(h/2)+self.bubble_pad)) #crop with padding
+            crop_path = f"./crops/{save_name}.png" #crop file path
+            crop.save(crop_path,"PNG") # save it for reading 
+            text = self.reader.readtext(crop_path) #read
+            os.remove(crop_path) #remove crop
+            text = ' '.join([str(t[1]) for t in text]) #save to text string for this page
+            
+            return text
+
+    '''Draw the bounding box around the prediction for checking accuracy'''
+    def drawBoundingBox(self,pair,draw):
+        colors = [(255,0,0),(0,255,0),(0,0,255),(255,0,255),(0,255,255),(255,255,0),(0,125,125),(125,0,125),(125,125,0),(255,255,255)]
+        
+        x,y,w,h = [float(val) for val in pair['box']]
+        cl = int(pair['class'])
+        conf = round(float(pair['conf']),3)
+        index = pair['index']
+        draw.rectangle((x-(w/2),y-(h/2),x+(w/2),y+(h/2)),width=3,outline=colors[cl])
+        draw.text((x,y), f"Class: {cl}, Conf: {conf}, i: {index}", stroke_fill=colors[cl], fill=colors[cl])
+
     
-    
+    '''Crop out the bubbles containing speech hopefully'''
     def cropBubbles(self,save_name,src):
         def posIndex(box):
             x,y,_,_ = box
             return round(float(x)*2+float(y))
         print(save_name)
         out_text = ""
-        colors = [(255,0,0),(0,255,0),(0,0,255),(255,0,255),(0,255,255),(255,255,0),(0,125,125),(125,0,125),(125,125,0),(255,255,255)]
-        
+       
         with Image.open(src).convert("RGB") as img:
             draw = ImageDraw.Draw(img)
             results = self.model([img])
@@ -179,27 +209,12 @@ class Reader():
                 for i,pair in enumerate(pairs):
                     x,y,w,h = [float(val) for val in pair["box"]]
                     cl = int(pair["class"]) #shorthand for vars
-
-
-                    if (cl==0 or cl==2 or cl == 4 or cl == 5) and float(pair['conf']) > 0.7: # if the class is something we should read
-                        crop = img.crop((x-(w/2)-self.bubble_pad,y-(h/2)-self.bubble_pad,x+(w/2)+self.bubble_pad,y+(h/2)+self.bubble_pad)) #crop with padding
-                        crop_path = f"./crops/{save_name}-{i}.png" #crop file path
-                        crop.save(crop_path,"PNG") # save it for reading 
-                        text = self.reader.readtext(crop_path) #read
-                        os.remove(crop_path) #remove crop
-                        text = ' '.join([str(t[1]) for t in text]) #save to text string for this page
-                        if text == '': 
-                            continue
-                        self.voiceSpeakText(text)
-                        out_text += f"{'='*10}\nFROM BOX: [{x},{y},{x+w},{y+h}]\n\n{text}\n" # append for the text file
+                    bubble_text = self.readBubble(pair,img,f"{save_name}-{i}")
+                    self.voiceSpeakText(bubble_text)
+                    out_text += f"{'='*10}\nFROM BOX:\nClass:{cl} [{round(x,2)},{round(y,2)},{round(x+w,2)},{round(y+h,2)}]\n\n{bubble_text}\n" # append for the text file
                         
                 for i,pair in enumerate(pairs): #draw the boxes on the image
-                    x,y,w,h = [float(val) for val in sizes[i]]
-                    cl = int(pair['class'])
-                    conf = round(float(pair['conf']),3)
-                    index = pair['index']
-                    draw.rectangle((x-(w/2),y-(h/2),x+(w/2),y+(h/2)),width=3,outline=colors[cl])
-                    draw.text((x,y), f"Class: {cl}, Conf: {conf}, i: {index}", stroke_fill=colors[cl], fill=colors[cl])
+                    self.drawBoundingBox(pair,draw)
                 
             img.save(f"./read/{save_name}.png","PNG")
         with open(f"./read/{save_name}.txt", "w") as log: #write a text file for the image from what we deciphered
@@ -223,7 +238,7 @@ class Reader():
         save_name = f'{comic}/{issue}'
         if not os.path.exists(f'./read/{comic}'):
             os.makedirs(f'./read/{comic}')
-        if not os.path.exists(f'./crop/{comic}'):
+        if not os.path.exists(f'./crops/{comic}'):
             os.makedirs(f'./crops/{comic}')
         #init our driver and go to the desired page collecting the elements we will need to read
         options = Options()
