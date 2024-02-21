@@ -32,6 +32,8 @@ class Reader():
         self.model_path = model_path
         self.active_proc = None
         self.active_driver = None
+        self.audio_proc = None
+        self.read_bubbles = 0
 
         #make needed directories
         if not os.path.exists(out_path):
@@ -55,6 +57,7 @@ class Reader():
         self.model = YOLO(path)
 
     def setTTSModel(self, modelString):
+        print(f"Setting TTS model to {modelString}")
         self.tts_model = modelString
 
     def setVoice(self, voice_path):
@@ -72,15 +75,20 @@ class Reader():
             self.active_driver.quit()
         if self.active_proc:
             self.active_proc.terminate()
+        if self.audio_proc:
+            self.audio_proc.terminate()
         
     '''Functin to call reader through gui'''
     def readWrapper(self,mode='read'):
         #init models
         print('Read Wrapper beggining read operation')
-        self.tts = TTS(self.tts_model).to(device)
+        try:
+            self.tts = TTS(self.tts_model).to(device)
+        except:
+            self.tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2").to(device)
         self.model = YOLO(self.model_path) if not self.model else self.model
         self.reader = easyocr.Reader(['en'],gpu=True)
-        self.speller = Speller(fast=True)
+        self.speller = Speller()
         for target in self.targets:
             self.readComic(target,mode)
 
@@ -163,11 +171,11 @@ class Reader():
     '''
     def cleanTextForSpeech(self,text):
         text = text.lower()
-        removes = [',','\'','#', '$', '%', '&', '*', '+', '_', '-','?','`', '.', ';']
+        removes = [',','\'','#', '$', '%', '&', '*', '+', '_', '-','?','`', '.', ';', '(', ')', '[', ']', '{', '}']
         for re in removes:
             text = text.replace(re,'')
         
-        replacements = {'0': 'o', '1': 'l', '6': 'g'}
+        replacements = {'0': 'o', '1': 'l', '6': 'g', '4':'y'} #these are just some common mistakes i saw it make could not be great
         for re in replacements.keys():
             text = text.replace(re,replacements[re])
 
@@ -175,14 +183,33 @@ class Reader():
         return text
 
     '''TTS using Coqui(soon to be bark)'''
-    def voiceSpeakText(self,text):
+    def voiceSpeakText(self,text,page_dir,bubble_num):
         if text is None or text=='': 
             return
         text = self.cleanTextForSpeech(text)
-        self.tts.tts_to_file(text=text, file_path="./audio_clips/current_bubble.wav", language='en', speaker_wav=self.voice_path)
-        winsound.PlaySound('./audio_clips/current_bubble.wav', winsound.SND_FILENAME)
-        os.remove('./audio_clips/current_bubble.wav')
+        clip_path = f"{page_dir}/{bubble_num}"
+        self.tts.tts_to_file(text=text, file_path=f'{clip_path}.wav', language='en', speaker_wav=self.voice_path,split_sentences=True)
+        # commented out the reading portion, want to try iterating through first
+        #winsound.PlaySound('./audio_clips/current_bubble.wav', winsound.SND_FILENAME)
+        #os.remove('./audio_clips/current_bubble.wav')
         return
+    
+    def audioProcess(self,audio_path):
+        if not self.audio_proc:
+            self.audio_proc = multiprocessing.Process(target=self.iterateAudio, args=(audio_path,))
+            self.audio_proc.start()
+
+    def iterateAudio(self,audio_path):
+        files = os.listdir(audio_path)
+        while len(files) <= 0:
+            continue
+
+        for page in files:
+            clips = os.listdir(page)
+            for clip in clips:
+                winsound.PlaySound(clip,winsound.SND_FILENAME)
+                os.remove(clip)
+        print(files)
 
     '''Given a prediction grab the text if applicable and return it '''
     def readBubble(self, pair,img,save_name):
@@ -211,11 +238,16 @@ class Reader():
 
     
     '''Crop out the bubbles containing speech hopefully'''
-    def cropBubbles(self,save_name,src):
+    def cropBubbles(self,save_name,src,page_num):
         def posIndex(box):
             x,y,_,_ = box
             return round(float(x)*2+float(y))
         print(save_name)
+        spl = save_name.split('/')
+        audio_page_dir = f'./audio_clips/{spl[0]}/{page_num}'
+        if not os.path.exists(audio_page_dir):
+            os.makedirs(audio_page_dir)
+
         out_text = ""
        
         with Image.open(src).convert("RGB") as img:
@@ -234,11 +266,9 @@ class Reader():
 
                 #loop over boxes
                 for i,pair in enumerate(pairs):
-                    x,y,w,h = [float(val) for val in pair["box"]]
-                    cl = int(pair["class"]) #shorthand for vars
                     bubble_text = self.readBubble(pair,img,f"{save_name}-{i}")
-                    self.voiceSpeakText(bubble_text)
-                    out_text += f"{'='*10}\nFROM BOX:\nClass:{cl} [{round(x,2)},{round(y,2)},{round(x+w,2)},{round(y+h,2)}]\n\n{bubble_text}\n" # append for the text file
+                    self.voiceSpeakText(bubble_text,audio_page_dir,i)
+                    out_text += f"{bubble_text}\n" # append for the text file
                         
                 for i,pair in enumerate(pairs): #draw the boxes on the image
                     self.drawBoundingBox(pair,draw)
@@ -267,6 +297,10 @@ class Reader():
             os.makedirs(f'./read/{comic}')
         if not os.path.exists(f'./crops/{comic}'):
             os.makedirs(f'./crops/{comic}')
+        if os.path.exists(f'./audio_clips/{comic}'):
+            os.makedirs(f'./audio_clips/{comic}')
+        
+        self.audioProcess(f'./audio_clips/{comic}')
         #init our driver and go to the desired page collecting the elements we will need to read
         options = Options()
         options.add_argument("--log-level=3")
@@ -297,8 +331,9 @@ class Reader():
                 src = self.getUpdatedImageSrc(driver)
                 tempImagePath = self.saveFullImage(src)
                 # need to reimplment the reading code here
-                self.cropBubbles(image_name,tempImagePath)
+                self.cropBubbles(image_name,tempImagePath,i)
                 time.sleep(0.12)
+                
                 os.remove(tempImagePath)
                 pass
             next_button.click()

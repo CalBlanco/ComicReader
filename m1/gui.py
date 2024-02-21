@@ -12,6 +12,15 @@ from reader import Reader
 class ReaderScreen(tk.Frame):
     def __init__(self,master):
         super().__init__(master)
+
+        self.models = []
+        with open('tts_models.txt', 'r+', encoding='utf-8') as model_file:
+            fuckmylife = model_file.read() #fucking hate random nonsense
+            fuckmylife = fuckmylife.strip() #outputed the model names from the tts comand but they have some wack ass encoding on them so i just had to type them all fucking out in some seperate text file
+            self.models = fuckmylife.split('\n') #POG CHAMP
+            
+            
+
         self.comic_reader = Reader('./out/','./best.pt') #init reader 
 
         #Tab layout for the reader and its settings
@@ -86,12 +95,11 @@ class ReaderScreen(tk.Frame):
         pad_entry.grid(row=2,column=1,padx=10,pady=10)
         #tts model by string entry
         tts_label = ttk.Label(settings_frame, text="TTS Model", font=('Helvetica', '12'))
-        tts_string = tk.StringVar()
-        tts_entry = ttk.Entry(settings_frame, textvariable=tts_string)
-        tts_entry.bind('<Return>', lambda x: self.comic_reader.setTTSModel(tts_string.get()))
+        tts_string = tk.StringVar(value=self.comic_reader.tts_model)
         tts_label.grid(row=3,column=0,padx=10,pady=10)
-        tts_entry.grid(row=3,column=1,padx=10,pady=10)
-
+        drop = ttk.OptionMenu(settings_frame, tts_string, self.comic_reader.tts_model, *self.models)
+        drop.bind('<FocusOut>', lambda x: self.comic_reader.setTTSModel(tts_string.get()))
+        drop.grid(row=3,column=1,padx=10,pady=10)
         settings_frame.pack()
 
         tabs.add(read_frame, text="Reader")

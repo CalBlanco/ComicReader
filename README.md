@@ -27,3 +27,30 @@ All the OCR is being done via `easyocr` I have not done any finetuning on it yet
 
 ### TTS
 The tts is being done via `coqui` or something like that i kinda forget the name. They have a bunch of different models/multilingual stuff that can be used which is nice. It is pretty slow, and part of me wants to change the reading system so the images and audio can be created for the comic and just read seamlessly instead of waiting on the TTS system (some longer chunks of text can take 20+seconds)
+
+
+
+## Adding a custom voice
+
+1. Find a good clip of someone talking (like `<name> speech` or `<name> interview`)
+2. Use some type of voice isolation (google free voice isolator some have free-trails or will just let you do it)
+3. potentially edit that further and only keep the portions that are isolated nicely
+4. select in the gui before clicking read
+
+
+## TTS models
+
+Speed: tts_models/multilingual/multi-dataset/your_tts
+Cloning: tts_models/multilingual/multi-dataset/xtts_v2
+
+*should run some further expirements with other models to try things out*
+
+
+## New Reading System
+1. Collect all full source images from the site for each page and store them into a folder (close the browser)
+2. For each image find all characters and text bubbles, write text bubbles in order onto a page line by line 
+3. With the list of all characters assign voices to certain characters?
+4. Perform our TTS on the completed pages and when we have wavs for each page read outloud
+
+Potentially think about threading or multiprocessing ability for the tts generation but it might be a hog so idk if that would work well
+Maybe a buffer would be ideal, process the first couple and only start reading after we have x amount processed

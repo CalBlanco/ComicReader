@@ -1,0 +1,4 @@
+tts_models/multilingual/multi-dataset/xtts_v2
+tts_models/multilingual/multi-dataset/xtts_v1.1
+tts_models/multilingual/multi-dataset/your_tts
+tts_models/multilingual/multi-dataset/bark
