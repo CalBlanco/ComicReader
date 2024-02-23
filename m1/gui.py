@@ -66,8 +66,14 @@ class ReaderScreen(tk.Frame):
         stop_button.grid(row=1,column=1, padx=10, pady=10)
         mode_frame.pack()
 
-        
 
+        #Loaded comics
+        progress_frame = ttk.Frame(read_frame)
+        progress_bar   = ttk.Progressbar(progress_frame,orient='horizontal',length=300,max=self.comic_reader.total_pages)
+        
+        #self.comic_reader.read_prog_bar = progress_bar
+        progress_bar.pack()
+        progress_frame.pack()
         read_frame.pack()
 
         #settings tab
@@ -102,8 +108,16 @@ class ReaderScreen(tk.Frame):
         drop.grid(row=3,column=1,padx=10,pady=10)
         settings_frame.pack()
 
+
+        #meta
+        meta_tab = ttk.Frame(tabs)
+        do_meta = ttk.Button(meta_tab, text=f'Read Meta', command=lambda: self.comic_reader.readFromMeta('./read/Invincible/Issue-0'))
+        do_meta.pack()
+        meta_tab.pack()
+
         tabs.add(read_frame, text="Reader")
         tabs.add(settings_frame, text="Settings")
+        tabs.add(meta_tab, text='Meta')
         tabs.pack()
 
 
@@ -170,11 +184,16 @@ class MainApp(tk.Tk):
 
 
         self.notebook = ttk.Notebook(self,width=900,height=800)
-        tab1 = ReaderScreen(self.notebook)
-        tab2 = DataBuilderScreen(self.notebook)
-        tab3 = YoloScreen(self.notebook)
-        self.notebook.add(tab1, text='Reader')
-        self.notebook.add(tab2, text='Data Builder')
-        self.notebook.add(tab3, text='Yolo Model Trainer')
+        self.tab1 = ReaderScreen(self.notebook)
+        self.tab2 = DataBuilderScreen(self.notebook)
+        self.tab3 = YoloScreen(self.notebook)
+        self.notebook.add(self.tab1, text='Reader')
+        self.notebook.add(self.tab2, text='Data Builder')
+        self.notebook.add(self.tab3, text='Yolo Model Trainer')
         self.notebook.pack()
         self.bind('<Escape>', lambda x: self.quit())
+
+    def exit(self):
+        self.quit()
+        self.tab1.comic_reader.threadStop()
+        
