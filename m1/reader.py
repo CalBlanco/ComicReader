@@ -34,30 +34,17 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 
 '''Reader Class for use in the GUI'''
 class Reader():
-    def __init__(self, out_path, model_path, tts_model='tts_models/multilingual/multi-dataset/your_tts',voice_path='voices/omniman/omniman.wav'):
-        self.out_path = out_path
-        self.voice_path = voice_path
-        self.model = None
-        self.tts_model = tts_model
+    def __init__(self, model_path:str):
         self.model_path = model_path
-        self.active_proc = None
-        self.active_driver = None
-        self.audio_proc = None
-        try:
-            self.tts = TTS(self.tts_model).to(device)
-        except:
-            self.tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2").to(device)
-        self.model = YOLO(self.model_path) if not self.model else self.model
-        self.reader = easyocr.Reader(['en'],gpu=True)
-        self.speller = Speller()
+        self.active_proc = None #active reading subproccess
+        self.active_driver = None #active selenium driver
+        
         
         self.read_pages = 0
         self.total_pages = 0
         self.read_prog_bar = None
 
-        #make needed directories
-        if not os.path.exists(out_path):
-            os.makedirs(out_path)
+        
         if not os.path.exists('./read/'):
             os.makedirs('./read/')
 
@@ -65,52 +52,46 @@ class Reader():
         self.targets = []
         self.bubble_pad = 10
 
-    def setPadding(self,pad):
+    def setPadding(self,pad:int):
         self.bubble_pad = pad
 
     '''Gui setting methods'''
-    def setModel(self,path):
+    def setModel(self,path:str):
         self.model = YOLO(path)
 
-    def setTTSModel(self, modelString):
-        print(f"Setting TTS model to {modelString}")
-        self.tts_model = modelString
-
-    def setVoice(self, voice_path):
-        self.voice_path = voice_path
-    '''Start a reading process if we don't have one'''
-    def threadRun(self,runMode='read'):
+    #call our subprocess
+    def read_process(self,mode:str='read'):
         if not self.active_proc:
-            self.active_proc = multiprocessing.Process(target=self.readWrapper,args=(runMode,))
+            print("starting read subprocess")
+            self.active_proc = multiprocessing.Process(target=self.read_wrapper,args=(mode,))
             self.active_proc.start()
-        return
+
+    def read_wrapper(self,mode:str):
+        print("initializing models for subprocess")
+        #init our models in the subprocess
+        self.model = YOLO(self.model_path)#yolo OD model
+        self.reader = easyocr.Reader(['en'],gpu=True) #easy ocr
+        self.speller = Speller() #spell check
+        for target in self.targets:
+            self.readComic(target,mode)
 
     '''Kill our active process'''
-    def threadStop(self):
+    def proc_stop(self):
         if self.active_driver:
             self.active_driver.quit()
         if self.active_proc:
             self.active_proc.terminate()
-        if self.audio_proc:
-            self.audio_proc.terminate()
         
-    '''Functin to call reader through gui'''
-    def readWrapper(self,mode='read'):
-        #init models
-        print('Read Wrapper beggining read operation')
-        
-        for target in self.targets:
-            self.readComic(target,mode)
-
+    
     '''Directly Add a target link'''
-    def addTargets(self,targets):
+    def addTargets(self,targets:list):
         if type(targets) == list: #set the list of targets
             self.targets = targets
         if type(targets) == str: #append a single target
             self.targets.append(targets)
     
     '''Add a list of targets by providing a file'''
-    def addTargetByFile(self,file_path):
+    def addTargetByFile(self,file_path:str):
         if not os.path.exists(file_path):
             return
         
@@ -120,7 +101,7 @@ class Reader():
     '''Clean out unwanted tabs providing a driver and the original window you
     intend to keep 
     '''
-    def cleanTabs(self,driver,og_window):
+    def cleanTabs(self,driver:webdriver,og_window:str):
         for window_handle in driver.window_handles:
             if window_handle != og_window:
                 driver.switch_to.window(window_handle)
@@ -130,7 +111,7 @@ class Reader():
 
     '''Center the image for reading / screenshotting
     '''
-    def center_image(self,driver,image_content):
+    def center_image(self,driver:webdriver,image_content:any):
         ActionChains(driver).key_down(Keys.CONTROL).send_keys(Keys.SUBTRACT).key_up(Keys.CONTROL).perform()    
         ActionChains(driver)\
         .scroll_to_element(image_content)\
@@ -139,12 +120,12 @@ class Reader():
         time.sleep(0.15) #have to sleep here otherwise screenshot is fucked
 
     '''Capture the image content as a screenshot for data collection'''
-    def takeScreenshot(self, image_content, save_name):
+    def takeScreenshot(self, image_content:any, save_name:str):
         image_content.screenshot(f'{save_name}/comic.png')
 
-
+    #add error handling 
     '''Get the total pages, next button, and image content location'''
-    def getPageItems(self,driver):
+    def getPageItems(self,driver:webdriver):
         next_button = driver.find_element(By.ID, "btnNext")
         image_conent = driver.find_element(By.ID, "divImage")
         dropdown_element = driver.find_element(By.ID, 'selectPage')
@@ -162,24 +143,27 @@ class Reader():
         return [next_button,image_conent,total_pages]
 
 
-    '''Grad the new image source for getting a fuller resolution image (helps with ocr)'''
-    def getUpdatedImageSrc(self,driver):
+    '''Grab the new image source for getting a fuller resolution image (helps with ocr)'''
+    def getUpdatedImageSrc(self,driver:webdriver):
         image_link = driver.find_element(By.ID, 'imgCurrent')
         src = image_link.get_attribute("src")
         return src
 
     '''Save the file as a temp file and return the file path'''
-    def saveFullImage(self,image_source):
-        r = requests.get(image_source)
-        assert r.status_code == 200, "Unable to get picture"
-        with tempfile.NamedTemporaryFile(delete=False,suffix=".png") as tmp_file:
-            tmp_file.write(r.content)
-            return tmp_file.name
+    def saveFullImage(self,image_source:str):
+        try:
+            r = requests.get(image_source)
+            assert r.status_code == 200, "Unable to get picture"
+            with tempfile.NamedTemporaryFile(delete=False,suffix=".png") as tmp_file:
+                tmp_file.write(r.content)
+                return tmp_file.name
+        except:
+            return None
 
     '''Clean out our text to aid in TTS
         removing certain chars that present problems and then feeding that replaced string into an autocorrecting library for further fixes
     '''
-    def cleanTextForSpeech(self,text):
+    def cleanTextForSpeech(self,text:str):
         text = text.lower()
         removes = [',','\'','#', '$', '%', '&', '*', '+', '_', '-','?','`', '.', ';', '(', ')', '[', ']', '{', '}']
         for re in removes:
@@ -190,34 +174,7 @@ class Reader():
             text = text.replace(re,replacements[re])
 
         text = self.speller(text)
-        return text
-
-    '''TTS using Coqui(soon to be bark)'''
-    def voiceSpeakText(self,text,page_dir,bubble_num):
-        if text is None or text=='': 
-            return
-        text = self.cleanTextForSpeech(text)
-        clip_path = f"{page_dir}/{bubble_num}"
-        self.tts.tts_to_file(text=text, file_path=f'{clip_path}.wav', language='en', speaker_wav=self.voice_path,split_sentences=True)
-        # commented out the reading portion, want to try iterating through first
-        #winsound.PlaySound(clip_path, winsound.SND_FILENAME)
-        #os.remove('./audio_clips/current_bubble.wav')
-        return
-    
-    #more generic string reader, perform some basic cleaning then ask to read outloud
-    # if no savename is passed file is removed after being read outloud
-    # read_now by default will read the processed text
-    def readString(self,text,voice=None, read_now=True,save_name=None):
-        if text is None or text=='': 
-            return
-        text = self.cleanTextForSpeech(text)
-        save = 'temp_voice.wav' if save_name is None else save_name
-        self.tts.tts_to_file(text=text, file_path=save, language='en', speaker_wav=voice if voice is not None else self.voice_path, split_sentences=True )
-        if read_now:
-            winsound.PlaySound(save, winsound.SND_FILENAME)
-        if save_name is None:
-            os.remove(save)
-
+        return text.lower()
 
     '''Given a prediction grab the text if applicable and return it '''
     def readBubble(self, pair,img):
@@ -231,7 +188,6 @@ class Reader():
             text = self.reader.readtext(crop_path) #read
             os.remove(crop_path) #remove crop
             text = ' '.join([str(t[1]) for t in text]) #save to text string for this page
-            
             return text
 
     '''Draw the bounding box around the prediction for checking accuracy'''
@@ -242,7 +198,7 @@ class Reader():
         cl = int(pair['class'])
         conf = round(float(pair['conf']),3)
         draw.rectangle((x-(w/2),y-(h/2),x+(w/2),y+(h/2)),width=3,outline=colors[cl])
-        draw.text((x,y-(h/2)), f"Class: {cl}, Conf: {conf}", stroke_fill=colors[cl], stroke_width=2, fill=colors[cl])
+        draw.text((x,y-(h/2)), f"Class: {cl}, Conf: {conf}", stroke_fill=colors[cl], fill=colors[cl])
 
     
     '''Crop out the bubbles containing speech hopefully'''
@@ -253,6 +209,7 @@ class Reader():
         out_text = ""
        
         with Image.open(src).convert("RGB") as img:
+            img.save(f"{page_dir}/raw.png", "PNG")#save raw version for reading
             draw = ImageDraw.Draw(img)
             results = self.model([img])
 
@@ -269,13 +226,12 @@ class Reader():
                 #loop over boxes
                 for i,pair in enumerate(pairs):
                     bubble_text = self.readBubble(pair,img)
-                    #self.voiceSpeakText(bubble_text,page_dir,i)
-                    out_text += f"{bubble_text}\n" if bubble_text is not None else "" # append for the text file
+                    out_text += f"{self.cleanTextForSpeech(bubble_text)}\n" if bubble_text is not None else "" # append for the text file
 
                 for i,pair in enumerate(pairs): #draw the boxes on the image
                     self.drawBoundingBox(pair,draw)
                 
-            img.save(f"{page_dir}/anot.png","PNG")
+            img.save(f"{page_dir}/anot.png","PNG") #save our annotated image (part of me wants to save the annotations we got as well)
         with open(f"{page_dir}/dialogue.txt", "w") as log: #write a text file for the image from what we deciphered
             log.write(f"{'-'*20}\n<START>\n\n{out_text}\n\n<END>{'-'*20}")
 
@@ -304,8 +260,6 @@ class Reader():
         if not os.path.exists(save_name):
             os.makedirs(save_name)
 
-
-        #self.audioProcess(f'./audio_clips/{comic}')
         #init our driver and go to the desired page collecting the elements we will need to read
         options = Options()
         options.add_argument("--log-level=3")
@@ -315,11 +269,10 @@ class Reader():
         driver.get(comic_page)
 
     
-        og_window = driver.current_window_handle
+        og_window = driver.current_window_handle #save our original window 
 
-        next_button, image_conent, total_pages= self.getPageItems(driver)
+        next_button, image_conent, total_pages= self.getPageItems(driver) #page elements we care about
 
-        
         wait = WebDriverWait(driver, timeout=2)
         wait.until(lambda d: image_conent.is_displayed())
         #iterate over each page saving the contents as images
@@ -327,30 +280,33 @@ class Reader():
         #Store the image, get any text from it, read off text, delete this image, go to next
         #self.read_prog_bar.set(0)
         for i in range(1,int(total_pages)-1):
-            
-            page_dir = f'{save_name}/{i}'
+            page_dir = f'{save_name}/{i}' #create the folder we will save our data into per page
             if not os.path.exists(page_dir):
                 os.makedirs(page_dir)
-            if len(driver.window_handles) > 1:
+
+            if len(driver.window_handles) > 1:#ensure this is the only tab open
                 self.cleanTabs(driver,og_window)
 
             self.center_image(driver,image_conent)
-            if mode == 'save':
+
+            if mode == 'save': #if in save mode just take a screenshot for the page
                 self.takeScreenshot(image_conent,page_dir)
-            if mode == 'read':
+
+            if mode == 'read': #if in read mode get the full res image, and read it
                 src = self.getUpdatedImageSrc(driver)
                 tempImagePath = self.saveFullImage(src)
-                # need to reimplment the reading code here
-                self.cropBubbles(page_dir,tempImagePath)
+                if not tempImagePath: #if the image can not be recieved just try the next one 
+                    continue
+               
+                self.cropBubbles(page_dir,tempImagePath) #Crop / Process the bubbles
                 time.sleep(0.12)
-                os.remove(tempImagePath)
+                os.remove(tempImagePath) #at this point this is technically double work (saving the raw image inread mode so we could just doo that but idk im lazy rn)
                 
-            next_button.click()
+            next_button.click() #go to next page
             #self.read_prog_bar.step()
             time.sleep(0.05)
             
-        self.saveComicData(save_name,total_pages-1)
-        self.readFromMeta(save_name)
+        self.saveComicData(save_name,total_pages-2) #-2 because we start 1 page after  the first (readcomic online puts an ad on the first page always)
 
         driver.close()#close out the driver
 
@@ -363,50 +319,3 @@ class Reader():
 
             meta.write(json.dumps(meta_data,indent=3))
   
-
-    #Read a comic based on the meta data file that was generated
-    def readFromMeta(self,meta_location):
-        print(meta_location)
-        try: #try to find and open the meta.json from the specified path
-            with open(f'{meta_location}/meta.json', 'r') as meta:
-                meta_data = json.loads(meta.read())
-                read_path = meta_data['path']
-                total_pages = meta_data['pages']
-
-            comic_path = os.path.join(os.getcwd(),read_path) #get the path of the comic files 
-            if not os.path.exists(comic_path):
-                print('Comic not found at path')
-                return
-            
-            
-            dirs = os.listdir(comic_path)
-            print(dirs)
-            dirs = [d for d in dirs if d.isdigit()]
-            dirs = sorted(dirs,key=int)
-            for i in dirs:
-                path = os.path.join(comic_path,i)
-                if os.path.isdir(path):
-                    with open(f'{path}/dialogue.txt') as dialogue:
-                        text_lines = self.parseDialogue(dialogue.read())
-                        for line in text_lines:
-                            self.readString(line)
-
-
-        except FileNotFoundError:
-            print('Unable to locate meta file')
-            return
-        except ValueError:
-            print('Unablet to parse json')
-            return 
-        except:
-            exc_type, exc_value, exc_traceback = sys.exc_info()
-            print(f'Ooops - {exc_type.__name__} : {exc_value}')
-            return
-    
-    #return an array of lines for each dialogue box
-    def parseDialogue(self,text:str):
-        start = text.find('<START>')
-        end = text.find('<END>')
-
-        text = text[start+len('<START>'):end]
-        return text.split('\n') 
