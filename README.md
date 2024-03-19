@@ -2,6 +2,14 @@
 
 I want to be enable people to experience comic books auditorially
 
+## Demo
+An attempt at reading Invincible Comic Issue #0 using a voice clone of Morgan Freeman
+
+
+https://github.com/Jimdangle/ComicReader/assets/72684566/a4de6c72-bd4e-4244-8d35-3be9c1a3e612
+
+
+
 ## Setup 
 1. Clone the repo
 2. cd into the appropriate version 
