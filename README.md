@@ -2,6 +2,11 @@
 
 I want to be enable people to experience comic books auditorially
 
+## License
+This project is licensed under a CC-BY-NC License.
+
+If you would like to use this code commercially please inquire directly.
+
 ## Demo
 An attempt at reading Invincible Comic Issue #0 using a voice clone of Morgan Freeman
 
